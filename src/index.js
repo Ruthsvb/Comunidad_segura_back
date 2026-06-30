@@ -15,11 +15,20 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.get('/health', (req, res) => {
+  let dbUser = 'none', dbHost = 'none';
+  if (process.env.DATABASE_URL) {
+    try {
+      const u = new URL(process.env.DATABASE_URL);
+      dbUser = u.username;
+      dbHost = u.hostname;
+    } catch(e) {}
+  }
   res.json({
     ok: true,
     message: 'Backend activo',
     db_mode: process.env.DATABASE_URL ? 'real' : 'mock',
-    db_host: process.env.DATABASE_URL ? process.env.DATABASE_URL.split('@')[1]?.split(':')[0] : 'none'
+    db_user: dbUser,
+    db_host: dbHost
   });
 });
 
