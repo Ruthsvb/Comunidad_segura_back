@@ -15,7 +15,12 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.get('/health', (req, res) => {
-  res.json({ ok: true, message: 'Backend activo' });
+  res.json({
+    ok: true,
+    message: 'Backend activo',
+    db_mode: process.env.DATABASE_URL ? 'real' : 'mock',
+    db_host: process.env.DATABASE_URL ? process.env.DATABASE_URL.split('@')[1]?.split(':')[0] : 'none'
+  });
 });
 
 app.use(corsMiddleware);
