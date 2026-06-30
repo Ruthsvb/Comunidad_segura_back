@@ -45,11 +45,15 @@ if (MOCK_MODE) {
     }
   };
 } else {
-  // Use Supabase session pooler (IPv4 compatible) - region sa-east-1
-  const connStr = process.env.DATABASE_URL.replace(
-    'db.gfnvocyhhcybnvuxfsmy.supabase.co:5432',
-    'aws-0-sa-east-1.pooler.supabase.com:5432'
-  );
+  // Supabase session pooler (IPv4, port 5432) — pooler needs user=postgres.PROJECT_REF
+  const PROJECT_REF = 'gfnvocyhhcybnvuxfsmy';
+  const parsed = new URL(process.env.DATABASE_URL);
+  parsed.hostname = `aws-0-sa-east-1.pooler.supabase.com`;
+  parsed.port = '5432';
+  if (!parsed.username.includes('.')) {
+    parsed.username = `${parsed.username}.${PROJECT_REF}`;
+  }
+  const connStr = parsed.toString();
   pool = new Pool({
     connectionString: connStr,
     ssl: { rejectUnauthorized: false }
