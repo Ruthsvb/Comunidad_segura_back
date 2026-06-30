@@ -45,21 +45,17 @@ if (MOCK_MODE) {
     }
   };
 } else {
-  // Supabase session pooler (IPv4, port 5432)
-  // Pooler uses SNI to identify tenant — needs servername + user=postgres.PROJECT_REF
+  // Supabase transaction pooler (IPv4, port 6543, user=postgres.PROJECT_REF)
   const PROJECT_REF = 'gfnvocyhhcybnvuxfsmy';
   const parsed = new URL(process.env.DATABASE_URL);
   parsed.hostname = `aws-0-sa-east-1.pooler.supabase.com`;
-  parsed.port = '5432';
+  parsed.port = '6543';
   if (!parsed.username.includes('.')) {
     parsed.username = `${parsed.username}.${PROJECT_REF}`;
   }
   pool = new Pool({
     connectionString: parsed.toString(),
-    ssl: {
-      rejectUnauthorized: false,
-      servername: `${PROJECT_REF}.supabase.com`
-    }
+    ssl: { rejectUnauthorized: false }
   });
 
   pool.on('error', (err) => {
