@@ -45,8 +45,13 @@ if (MOCK_MODE) {
     }
   };
 } else {
+  // Use Supabase session pooler (IPv4 compatible) - region sa-east-1
+  const connStr = process.env.DATABASE_URL.replace(
+    'db.gfnvocyhhcybnvuxfsmy.supabase.co:5432',
+    'aws-0-sa-east-1.pooler.supabase.com:5432'
+  );
   pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
+    connectionString: connStr,
     ssl: { rejectUnauthorized: false }
   });
 
