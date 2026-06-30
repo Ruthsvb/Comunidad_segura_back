@@ -14,6 +14,10 @@ const gastosRoutes = require('./routes/gastos');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+app.get('/health', (req, res) => {
+  res.json({ ok: true, message: 'Backend activo' });
+});
+
 app.use(corsMiddleware);
 app.use(express.json());
 
@@ -24,10 +28,6 @@ app.use('/api/tickets', verifyToken, ticketsRoutes);
 app.use('/api/reservas', verifyToken, reservasRoutes);
 app.use('/api/reclamos', verifyToken, reclamosRoutes);
 app.use('/api/gastos', verifyToken, gastosRoutes);
-
-app.get('/health', (req, res) => {
-  res.json({ ok: true, message: 'Backend activo' });
-});
 
 app.listen(PORT, () => {
   console.log(`✅ Servidor corriendo en http://localhost:${PORT}`);
