@@ -45,10 +45,10 @@ if (MOCK_MODE) {
     }
   };
 } else {
-  // Supabase transaction pooler (IPv4, port 6543, user=postgres.PROJECT_REF)
+  // Supabase transaction pooler (IPv4, port 6543, region aws-1-sa-east-1)
   const PROJECT_REF = 'gfnvocyhhcybnvuxfsmy';
   const parsed = new URL(process.env.DATABASE_URL);
-  parsed.hostname = `aws-0-sa-east-1.pooler.supabase.com`;
+  parsed.hostname = `aws-1-sa-east-1.pooler.supabase.com`;
   parsed.port = '6543';
   if (!parsed.username.includes('.')) {
     parsed.username = `${parsed.username}.${PROJECT_REF}`;
