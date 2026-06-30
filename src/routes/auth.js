@@ -25,8 +25,8 @@ router.post('/login', async (req, res) => {
 
     res.json({ ok: true, token, resident: { id: resident.id, nombre: resident.nombre, apellido: resident.apellido, unidad: resident.unidad, email: resident.email, rol: resident.rol } });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ ok: false, error: 'Error en login' });
+    console.error('LOGIN ERROR:', err.message, err.code);
+    res.status(500).json({ ok: false, error: 'Error en login', detail: err.message });
   }
 });
 
