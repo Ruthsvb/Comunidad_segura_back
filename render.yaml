@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: comunidad-segura-backend
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node src/index.js
+    envVars:
+      - key: DATABASE_URL
+        scope: build
+        sync: false
+      - key: JWT_SECRET
+        scope: build
+        sync: false
+      - key: CORS_ORIGIN
+        value: https://comunidad-seguraproject.vercel.app
+      - key: NODE_ENV
+        value: production
