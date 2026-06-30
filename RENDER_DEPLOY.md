@@ -1,9 +1,11 @@
 # Deploy a Render.com
 
 ## Pre-requisitos
-- GitHub repo `github.com/Ruthsvb/comunidad-segura-backend`
-- Cuenta Render.com
-- Supabase connection string
+- GitHub repo `github.com/Ruthsvb/comunidad-segura-backend` (crear primero)
+- Cuenta Render.com (free tier)
+- Supabase PostgreSQL connection string
+- JWT_SECRET (min 32 chars): `openssl rand -hex 16`
+- Ver SECURITY.md antes de deploy
 
 ## Pasos
 
@@ -28,14 +30,14 @@ git push -u origin main
    - Start Command: `node src/index.js`
    - Plan: `Free`
 
-4. **Environment Variables**
-   Add these as Secrets (dashboard → Settings):
-   ```
-   DATABASE_URL = postgresql://postgres:XilKeYxMe9XaREFj@db.gfnvocyhhcybnvuxfsmy.supabase.co:5432/postgres
-   JWT_SECRET = comunidad_segura_jwt_2026
-   CORS_ORIGIN = https://comunidad-seguraproject.vercel.app
-   NODE_ENV = production
-   ```
+4. **Environment Variables** (set in Render dashboard, not in code)
+   Dashboard → Settings → Environment:
+   - DATABASE_URL: `postgresql://postgres:PASSWORD@db.PROJECT_ID.supabase.co:5432/postgres`
+   - JWT_SECRET: `[strong 32+ char random string]` (use `openssl rand -hex 16`)
+   - CORS_ORIGIN: `https://comunidad-seguraproject.vercel.app`
+   - NODE_ENV: `production`
+   
+   ⚠️ NEVER commit .env file with credentials
 
 5. **Deploy**
    - Click "Create Web Service"
