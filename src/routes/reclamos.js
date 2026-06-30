@@ -1,55 +1,67 @@
 const express = require('express');
-const pool = require('../db/connection');
+const { createClient } = require('@supabase/supabase-js');
 const { verifyToken, verifyAdmin } = require('../middleware/auth');
 
 const router = express.Router();
 
+const getSupabase = () => createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY,
+  { auth: { persistSession: false } }
+);
+
 router.get('/', verifyToken, async (req, res) => {
   try {
+    const supabase = getSupabase();
     const { unidad, estado } = req.query;
-    let query = 'SELECT rc.* FROM reclamos rc JOIN residentes r ON rc.residente_id = r.id WHERE 1=1';
-    const params = [];
 
-    if (unidad) {
-      query += ' AND r.unidad = $' + (params.length + 1);
-      params.push(unidad);
-    }
-    if (estado) {
-      query += ' AND rc.estado = $' + (params.length + 1);
-      params.push(estado);
-    }
+    let query = supabase
+      .from('reclamos')
+      .select('*, residentes(unidad, nombre, apellido)')
+      .order('fecha_creacion', { ascending: false });
 
     if (req.user.rol !== 'admin') {
-      query += ' AND rc.residente_id = $' + (params.length + 1);
-      params.push(req.user.id);
+      query = query.eq('residente_id', req.user.id);
+    } else if (unidad) {
+      const { data: res2 } = await supabase.from('residentes').select('id').eq('unidad', unidad);
+      const ids = (res2 || []).map(r => r.id);
+      if (ids.length === 0) return res.json({ ok: true, data: [] });
+      query = query.in('residente_id', ids);
     }
 
-    query += ' ORDER BY rc.fecha_creacion DESC';
-    const result = await pool.query(query, params);
-    res.json({ ok: true, data: result.rows });
+    if (estado) query = query.eq('estado', estado);
+
+    const { data, error } = await query;
+    if (error) throw new Error(error.message);
+    res.json({ ok: true, data: data || [] });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ ok: false, error: 'Error al cargar reclamos' });
+    res.status(500).json({ ok: false, error: 'Error al cargar reclamos', detail: err.message });
   }
 });
 
 router.get('/:id', verifyToken, async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM reclamos WHERE id = $1', [req.params.id]);
-    if (result.rows.length === 0) return res.status(404).json({ ok: false, error: 'Reclamo no encontrado' });
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+      .from('reclamos')
+      .select('*')
+      .eq('id', req.params.id)
+      .single();
 
-    if (req.user.rol !== 'admin' && result.rows[0].residente_id !== req.user.id) {
+    if (error || !data) return res.status(404).json({ ok: false, error: 'Reclamo no encontrado' });
+    if (req.user.rol !== 'admin' && data.residente_id !== req.user.id) {
       return res.status(403).json({ ok: false, error: 'No tienes permiso' });
     }
-    res.json({ ok: true, data: result.rows[0] });
+    res.json({ ok: true, data });
   } catch (err) {
-    console.error(err);
     res.status(500).json({ ok: false, error: 'Error' });
   }
 });
 
 router.post('/', verifyToken, async (req, res) => {
   try {
+    const supabase = getSupabase();
     const { tipo, motivo, descripcion, unidad_afectada, residente_id } = req.body;
     const rId = residente_id || req.user.id;
 
@@ -57,52 +69,80 @@ router.post('/', verifyToken, async (req, res) => {
       return res.status(400).json({ ok: false, error: 'Tipo y descripción requeridos' });
     }
 
-    const result = await pool.query(
-      'INSERT INTO reclamos (residente_id, tipo, motivo, descripcion, unidad_afectada, estado, fecha_creacion) VALUES ($1, $2, $3, $4, $5, \'abierto\', NOW()) RETURNING *',
-      [rId, tipo, motivo || tipo, descripcion, unidad_afectada || '']
-    );
-    res.status(201).json({ ok: true, data: result.rows[0] });
+    const { data, error } = await supabase
+      .from('reclamos')
+      .insert({
+        residente_id: rId,
+        tipo,
+        motivo: motivo || tipo,
+        descripcion,
+        unidad_afectada: unidad_afectada || '',
+        estado: 'abierto',
+        fecha_creacion: new Date().toISOString()
+      })
+      .select()
+      .single();
+
+    if (error) throw new Error(error.message);
+    res.status(201).json({ ok: true, data });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ ok: false, error: 'Error al crear reclamo' });
+    res.status(500).json({ ok: false, error: 'Error al crear reclamo', detail: err.message });
   }
 });
 
 router.put('/:id', verifyToken, verifyAdmin, async (req, res) => {
   try {
+    const supabase = getSupabase();
     const { tipo, motivo, descripcion, unidad_afectada, prioridad } = req.body;
-    const result = await pool.query(
-      'UPDATE reclamos SET tipo = COALESCE($1, tipo), motivo = COALESCE($2, motivo), descripcion = COALESCE($3, descripcion), unidad_afectada = COALESCE($4, unidad_afectada), prioridad = COALESCE($5, prioridad) WHERE id = $6 RETURNING *',
-      [tipo, motivo, descripcion, unidad_afectada, prioridad, req.params.id]
-    );
-    res.json({ ok: true, data: result.rows[0] });
+    const updates = {};
+    if (tipo !== undefined) updates.tipo = tipo;
+    if (motivo !== undefined) updates.motivo = motivo;
+    if (descripcion !== undefined) updates.descripcion = descripcion;
+    if (unidad_afectada !== undefined) updates.unidad_afectada = unidad_afectada;
+    if (prioridad !== undefined) updates.prioridad = prioridad;
+
+    const { data, error } = await supabase
+      .from('reclamos')
+      .update(updates)
+      .eq('id', req.params.id)
+      .select()
+      .single();
+
+    if (error) throw new Error(error.message);
+    res.json({ ok: true, data });
   } catch (err) {
-    console.error(err);
     res.status(500).json({ ok: false, error: 'Error al actualizar' });
   }
 });
 
 router.patch('/:id/estado', verifyToken, verifyAdmin, async (req, res) => {
   try {
+    const supabase = getSupabase();
     const { estado } = req.body;
     if (!['abierto', 'en_revision', 'resuelto', 'desestimado'].includes(estado)) {
       return res.status(400).json({ ok: false, error: 'Estado inválido' });
     }
 
-    const result = await pool.query('UPDATE reclamos SET estado = $1 WHERE id = $2 RETURNING *', [estado, req.params.id]);
-    res.json({ ok: true, data: result.rows[0] });
+    const { data, error } = await supabase
+      .from('reclamos')
+      .update({ estado })
+      .eq('id', req.params.id)
+      .select()
+      .single();
+
+    if (error) throw new Error(error.message);
+    res.json({ ok: true, data });
   } catch (err) {
-    console.error(err);
     res.status(500).json({ ok: false, error: 'Error' });
   }
 });
 
 router.delete('/:id', verifyToken, verifyAdmin, async (req, res) => {
   try {
-    await pool.query('DELETE FROM reclamos WHERE id = $1', [req.params.id]);
+    const supabase = getSupabase();
+    await supabase.from('reclamos').delete().eq('id', req.params.id);
     res.json({ ok: true, message: 'Reclamo eliminado' });
   } catch (err) {
-    console.error(err);
     res.status(500).json({ ok: false, error: 'Error al eliminar' });
   }
 });

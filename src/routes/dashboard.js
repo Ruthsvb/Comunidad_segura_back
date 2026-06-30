@@ -1,29 +1,40 @@
 const express = require('express');
-const pool = require('../db/connection');
+const { createClient } = require('@supabase/supabase-js');
 const { verifyToken } = require('../middleware/auth');
 
 const router = express.Router();
 
+const getSupabase = () => createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY,
+  { auth: { persistSession: false } }
+);
+
 router.get('/', verifyToken, async (req, res) => {
   try {
+    const supabase = getSupabase();
     const day = new Date().getDate();
     const isMultaPeriod = day > 10;
+    const today = new Date().toISOString().split('T')[0];
 
-    const residentes = await pool.query('SELECT COUNT(*) as count FROM residentes');
-    const tickets = await pool.query('SELECT COUNT(*) as count, SUM(CASE WHEN prioridad = \'urgente\' THEN 1 ELSE 0 END) as urgentes FROM tickets_mantencion WHERE estado IN (\'abierto\', \'en_progreso\')');
-    const reservas = await pool.query('SELECT COUNT(*) as count FROM reservas WHERE fecha >= CURRENT_DATE AND estado = \'confirmada\'');
-    const reclamos = await pool.query('SELECT COUNT(*) as count FROM reclamos WHERE estado IN (\'abierto\', \'en_revision\')');
-    const gastos = await pool.query('SELECT COUNT(*) as count FROM gastos_comunes WHERE estado_pago IN (\'pendiente\', \'vencido\')');
+    const [residentes, tickets, ticketsUrgentes, reservas, reclamos, gastos] = await Promise.all([
+      supabase.from('residentes').select('*', { count: 'exact', head: true }),
+      supabase.from('tickets_mantencion').select('*', { count: 'exact', head: true }).in('estado', ['abierto', 'en_progreso']),
+      supabase.from('tickets_mantencion').select('*', { count: 'exact', head: true }).in('estado', ['abierto', 'en_progreso']).eq('prioridad', 'urgente'),
+      supabase.from('reservas').select('*', { count: 'exact', head: true }).gte('fecha', today).eq('estado', 'confirmada'),
+      supabase.from('reclamos').select('*', { count: 'exact', head: true }).in('estado', ['abierto', 'en_revision']),
+      supabase.from('gastos_comunes').select('*', { count: 'exact', head: true }).in('estado_pago', ['pendiente', 'vencido'])
+    ]);
 
     res.json({
       ok: true,
       data: {
-        total_residentes_activos: parseInt(residentes.rows[0].count),
-        tickets_abiertos: parseInt(tickets.rows[0].count),
-        tickets_urgentes: parseInt(tickets.rows[0].urgentes || 0),
-        reservas_proximas: parseInt(reservas.rows[0].count),
-        reclamos_pendientes: parseInt(reclamos.rows[0].count),
-        gastos_pendientes: parseInt(gastos.rows[0].count),
+        total_residentes_activos: residentes.count || 0,
+        tickets_abiertos: tickets.count || 0,
+        tickets_urgentes: ticketsUrgentes.count || 0,
+        reservas_proximas: reservas.count || 0,
+        reclamos_pendientes: reclamos.count || 0,
+        gastos_pendientes: gastos.count || 0,
         multa_gastos_comunes_activa: isMultaPeriod,
         timestamp: new Date().toISOString()
       }

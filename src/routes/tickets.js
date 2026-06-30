@@ -1,59 +1,68 @@
 const express = require('express');
-const pool = require('../db/connection');
+const { createClient } = require('@supabase/supabase-js');
 const { verifyToken, verifyAdmin } = require('../middleware/auth');
 
 const router = express.Router();
 
+const getSupabase = () => createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY,
+  { auth: { persistSession: false } }
+);
+
 router.get('/', verifyToken, async (req, res) => {
   try {
+    const supabase = getSupabase();
     const { unidad, estado, prioridad } = req.query;
-    let query = 'SELECT t.* FROM tickets_mantencion t JOIN residentes r ON t.residente_id = r.id WHERE 1=1';
-    const params = [];
 
-    if (unidad) {
-      query += ' AND r.unidad = $' + (params.length + 1);
-      params.push(unidad);
-    }
-    if (estado) {
-      query += ' AND t.estado = $' + (params.length + 1);
-      params.push(estado);
-    }
-    if (prioridad) {
-      query += ' AND t.prioridad = $' + (params.length + 1);
-      params.push(prioridad);
-    }
+    let query = supabase
+      .from('tickets_mantencion')
+      .select('*, residentes(unidad, nombre, apellido)')
+      .order('fecha_creacion', { ascending: false });
 
     if (req.user.rol !== 'admin') {
-      query += ' AND t.residente_id = $' + (params.length + 1);
-      params.push(req.user.id);
+      query = query.eq('residente_id', req.user.id);
+    } else if (unidad) {
+      const { data: res2 } = await supabase.from('residentes').select('id').eq('unidad', unidad);
+      const ids = (res2 || []).map(r => r.id);
+      if (ids.length === 0) return res.json({ ok: true, data: [] });
+      query = query.in('residente_id', ids);
     }
 
-    query += ' ORDER BY t.fecha_creacion DESC';
-    const result = await pool.query(query, params);
-    res.json({ ok: true, data: result.rows });
+    if (estado) query = query.eq('estado', estado);
+    if (prioridad) query = query.eq('prioridad', prioridad);
+
+    const { data, error } = await query;
+    if (error) throw new Error(error.message);
+    res.json({ ok: true, data: data || [] });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ ok: false, error: 'Error al cargar tickets' });
+    res.status(500).json({ ok: false, error: 'Error al cargar tickets', detail: err.message });
   }
 });
 
 router.get('/:id', verifyToken, async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM tickets_mantencion WHERE id = $1', [req.params.id]);
-    if (result.rows.length === 0) return res.status(404).json({ ok: false, error: 'Ticket no encontrado' });
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+      .from('tickets_mantencion')
+      .select('*')
+      .eq('id', req.params.id)
+      .single();
 
-    if (req.user.rol !== 'admin' && result.rows[0].residente_id !== req.user.id) {
+    if (error || !data) return res.status(404).json({ ok: false, error: 'Ticket no encontrado' });
+    if (req.user.rol !== 'admin' && data.residente_id !== req.user.id) {
       return res.status(403).json({ ok: false, error: 'No tienes permiso' });
     }
-    res.json({ ok: true, data: result.rows[0] });
+    res.json({ ok: true, data });
   } catch (err) {
-    console.error(err);
     res.status(500).json({ ok: false, error: 'Error' });
   }
 });
 
 router.post('/', verifyToken, async (req, res) => {
   try {
+    const supabase = getSupabase();
     const { titulo, categoria, descripcion, prioridad, residente_id } = req.body;
     const rId = residente_id || req.user.id;
 
@@ -61,56 +70,82 @@ router.post('/', verifyToken, async (req, res) => {
       return res.status(400).json({ ok: false, error: 'Campos requeridos' });
     }
 
-    const result = await pool.query(
-      'INSERT INTO tickets_mantencion (titulo, categoria, descripcion, prioridad, residente_id, estado, fecha_creacion) VALUES ($1, $2, $3, $4, $5, \'abierto\', NOW()) RETURNING *',
-      [titulo, categoria, descripcion, prioridad || 'media', rId]
-    );
-    res.status(201).json({ ok: true, data: result.rows[0] });
+    const { data, error } = await supabase
+      .from('tickets_mantencion')
+      .insert({
+        titulo,
+        categoria,
+        descripcion,
+        prioridad: prioridad || 'media',
+        residente_id: rId,
+        estado: 'abierto',
+        fecha_creacion: new Date().toISOString()
+      })
+      .select()
+      .single();
+
+    if (error) throw new Error(error.message);
+    res.status(201).json({ ok: true, data });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ ok: false, error: 'Error al crear ticket' });
+    res.status(500).json({ ok: false, error: 'Error al crear ticket', detail: err.message });
   }
 });
 
 router.put('/:id', verifyToken, verifyAdmin, async (req, res) => {
   try {
+    const supabase = getSupabase();
     const { titulo, categoria, descripcion, prioridad } = req.body;
-    const result = await pool.query(
-      'UPDATE tickets_mantencion SET titulo = COALESCE($1, titulo), categoria = COALESCE($2, categoria), descripcion = COALESCE($3, descripcion), prioridad = COALESCE($4, prioridad) WHERE id = $5 RETURNING *',
-      [titulo, categoria, descripcion, prioridad, req.params.id]
-    );
-    res.json({ ok: true, data: result.rows[0] });
+    const updates = {};
+    if (titulo !== undefined) updates.titulo = titulo;
+    if (categoria !== undefined) updates.categoria = categoria;
+    if (descripcion !== undefined) updates.descripcion = descripcion;
+    if (prioridad !== undefined) updates.prioridad = prioridad;
+
+    const { data, error } = await supabase
+      .from('tickets_mantencion')
+      .update(updates)
+      .eq('id', req.params.id)
+      .select()
+      .single();
+
+    if (error) throw new Error(error.message);
+    res.json({ ok: true, data });
   } catch (err) {
-    console.error(err);
     res.status(500).json({ ok: false, error: 'Error al actualizar' });
   }
 });
 
 router.patch('/:id/estado', verifyToken, verifyAdmin, async (req, res) => {
   try {
+    const supabase = getSupabase();
     const { estado } = req.body;
     if (!['abierto', 'en_progreso', 'cerrado'].includes(estado)) {
       return res.status(400).json({ ok: false, error: 'Estado inválido' });
     }
 
-    const query = estado === 'cerrado'
-      ? 'UPDATE tickets_mantencion SET estado = $1, fecha_resolucion = NOW() WHERE id = $2 RETURNING *'
-      : 'UPDATE tickets_mantencion SET estado = $1 WHERE id = $2 RETURNING *';
+    const updates = { estado };
+    if (estado === 'cerrado') updates.fecha_resolucion = new Date().toISOString();
 
-    const result = await pool.query(query, [estado, req.params.id]);
-    res.json({ ok: true, data: result.rows[0] });
+    const { data, error } = await supabase
+      .from('tickets_mantencion')
+      .update(updates)
+      .eq('id', req.params.id)
+      .select()
+      .single();
+
+    if (error) throw new Error(error.message);
+    res.json({ ok: true, data });
   } catch (err) {
-    console.error(err);
     res.status(500).json({ ok: false, error: 'Error' });
   }
 });
 
 router.delete('/:id', verifyToken, verifyAdmin, async (req, res) => {
   try {
-    await pool.query('DELETE FROM tickets_mantencion WHERE id = $1', [req.params.id]);
+    const supabase = getSupabase();
+    await supabase.from('tickets_mantencion').delete().eq('id', req.params.id);
     res.json({ ok: true, message: 'Ticket eliminado' });
   } catch (err) {
-    console.error(err);
     res.status(500).json({ ok: false, error: 'Error al eliminar' });
   }
 });
