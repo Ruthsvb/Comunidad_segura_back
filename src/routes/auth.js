@@ -13,6 +13,10 @@ router.post('/login', async (req, res) => {
     if (result.rows.length === 0) return res.status(401).json({ ok: false, error: 'Credenciales inválidas' });
 
     const resident = result.rows[0];
+
+    if (resident.password && resident.password !== password) {
+      return res.status(401).json({ ok: false, error: 'Credenciales inválidas' });
+    }
     const token = jwt.sign(
       { id: resident.id, email: resident.email, rol: resident.rol, unidad: resident.unidad },
       process.env.JWT_SECRET,
