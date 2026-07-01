@@ -94,7 +94,7 @@ router.post('/', verifyToken, async (req, res) => {
 
     const { data, error } = await supabase
       .from('reservas')
-      .insert({ residente_id: rId, espacio_comun, fecha, hora_inicio, hora_fin, estado: 'confirmada' })
+      .insert({ residente_id: rId, espacio_comun, fecha, hora_inicio, hora_fin, estado: 'pendiente' })
       .select()
       .single();
 
